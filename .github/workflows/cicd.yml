@@ -3,11 +3,63 @@ name: CICD
 on:
   push:
     branches:
-      - fixme
+      - main
 
 jobs:
-  provision-aws:
+  build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lambda:
+          - name: trajectory
+            tag: trajectory
+          - name: lights
+            tag: lights
+          - name: roadValidation
+            tag: roadValidation
+          - name: stateDump
+            tag: stateDump
+
+    env:
+      AWS_REGION: us-east-2
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          install: true
+
+      - name: Log in to Amazon ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build and push ${{ matrix.lambda.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/traffic-simulation-lambda-repo:${{ matrix.lambda.tag }}
+          build-args: |
+            LAMBDA_FILE=${{ matrix.lambda.name }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+  provision-aws:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-2
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +73,7 @@ jobs:
           terraform init \
             -backend-config="bucket=mvilsoet-bucket" \
             -backend-config="key=terraform.tfstate" \
-            -backend-config="region=us-east-2"
+            -backend-config="region=${{ env.AWS_REGION }}"
         working-directory: ./terraform
 
       - name: Terraform Validate
@@ -39,49 +91,8 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: ./terraform
 
-      # Capture Terraform outputs for ECR repository name
       - name: Get ECR Repository Name
         id: ecr_output
         run: |
-          ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)
-          echo "ECR_REPOSITORY=${ECR_REPOSITORY}" >> $GITHUB_ENV
+          echo "ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)" >> $GITHUB_ENV
         working-directory: ./terraform
-
-  build-and-push:
-    needs: provision-aws
-    runs-on: ubuntu-latest
-
-    env:
-      AWS_REGION: us-west-2
-      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
-      LAMBDAS: |
-        trajectory
-        lights
-        roadValidation
-        stateDump
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Login to Amazon ECR
-        run: |
-          aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
-          aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-          aws configure set region $AWS_REGION
-          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-
-      - name: Build and push Lambda function images
-        run: |
-          for LAMBDA in $LAMBDAS; do
-            IMAGE_TAG="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$LAMBDA"
-
-            echo "Building image for Lambda function: $LAMBDA"
-            docker build --build-arg LAMBDA_FILE=$LAMBDA -t $IMAGE_TAG .
-
-            echo "Pushing image to ECR: $IMAGE_TAG"
-            docker push $IMAGE_TAG
-          done

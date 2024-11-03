@@ -14,6 +14,12 @@ resource "aws_dynamodb_table" "traffic_simulation" {
     type = "S"
   }
 
+  # Add entity_type attribute definition to match the secondary index
+  attribute {
+    name = "entity_type"
+    type = "S"
+  }
+
   global_secondary_index {
     name               = "EntityTypeIndex"
     hash_key           = "entity_type"
