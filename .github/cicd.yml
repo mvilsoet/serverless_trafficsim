@@ -1,0 +1,87 @@
+name: CICD
+
+on:
+  push:
+    branches:
+      - fixme
+
+jobs:
+  provision-aws:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.1.7
+
+      - name: Terraform Init with S3 backend
+        run: |
+          terraform init \
+            -backend-config="bucket=mvilsoet-bucket" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=us-east-2"
+        working-directory: ./terraform
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+        working-directory: ./terraform
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan
+        working-directory: ./terraform
+
+      - name: Provision AWS resources
+        id: apply
+        run: terraform apply -auto-approve
+        working-directory: ./terraform
+
+      # Capture Terraform outputs for ECR repository name
+      - name: Get ECR Repository Name
+        id: ecr_output
+        run: |
+          ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)
+          echo "ECR_REPOSITORY=${ECR_REPOSITORY}" >> $GITHUB_ENV
+        working-directory: ./terraform
+
+  build-and-push:
+    needs: provision-aws
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-west-2
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+      LAMBDAS: |
+        trajectory
+        lights
+        roadValidation
+        stateDump
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Amazon ECR
+        run: |
+          aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+          aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+          aws configure set region $AWS_REGION
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build and push Lambda function images
+        run: |
+          for LAMBDA in $LAMBDAS; do
+            IMAGE_TAG="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$LAMBDA"
+
+            echo "Building image for Lambda function: $LAMBDA"
+            docker build --build-arg LAMBDA_FILE=$LAMBDA -t $IMAGE_TAG .
+
+            echo "Pushing image to ECR: $IMAGE_TAG"
+            docker push $IMAGE_TAG
+          done
