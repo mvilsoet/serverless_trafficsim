@@ -29,7 +29,6 @@ resource "aws_dynamodb_table" "traffic_simulation" {
     type = "S"
   }
 
-  # Add entity_type attribute definition to match the secondary index
   attribute {
     name = "entity_type"
     type = "S"
@@ -89,69 +88,6 @@ resource "aws_iam_role_policy_attachment" "lambda_logs_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Lambda Functions (Using ECR Images)
-resource "aws_lambda_function" "trajectory" {
-  function_name = "trajectory"
-  role          = aws_iam_role.lambda_exec_role.arn
-  package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.lambda_repository.repository_url}:trajectory"
-  memory_size   = 128
-  timeout       = 30
-
-  environment {
-    variables = {
-      DYNAMODB_TABLE           = aws_dynamodb_table.traffic_simulation.name
-      VEHICLE_TRAJECTORY_QUEUE = aws_sqs_queue.vehicle_trajectory_queue.url
-    }
-  }
-}
-
-resource "aws_lambda_function" "lights" {
-  function_name = "lights"
-  role          = aws_iam_role.lambda_exec_role.arn
-  package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.lambda_repository.repository_url}:lights"
-  memory_size   = 128
-  timeout       = 30
-
-  environment {
-    variables = {
-      DYNAMODB_TABLE       = aws_dynamodb_table.traffic_simulation.name
-      TRAFFIC_LIGHT_QUEUE  = aws_sqs_queue.traffic_light_queue.url
-    }
-  }
-}
-
-resource "aws_lambda_function" "roadValidation" {
-  function_name = "roadValidation"
-  role          = aws_iam_role.lambda_exec_role.arn
-  package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.lambda_repository.repository_url}:roadValidation"
-  memory_size   = 128
-  timeout       = 30
-
-  environment {
-    variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.traffic_simulation.name
-    }
-  }
-}
-
-resource "aws_lambda_function" "stateDump" {
-  function_name = "stateDump"
-  role          = aws_iam_role.lambda_exec_role.arn
-  package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.lambda_repository.repository_url}:stateDump"
-  memory_size   = 128
-  timeout       = 30
-
-  environment {
-    variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.traffic_simulation.name
-    }
-  }
-}
-
 # API Gateway for Visualization (State Dump)
 resource "aws_apigatewayv2_api" "state_dump_api" {
   name          = "StateDumpAPI"
@@ -161,7 +97,7 @@ resource "aws_apigatewayv2_api" "state_dump_api" {
 resource "aws_apigatewayv2_integration" "state_dump_integration" {
   api_id           = aws_apigatewayv2_api.state_dump_api.id
   integration_type = "AWS_PROXY"
-  integration_uri  = aws_lambda_function.stateDump.invoke_arn
+  integration_uri  = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:stateDump"
 }
 
 resource "aws_apigatewayv2_route" "state_dump_route" {
@@ -174,7 +110,7 @@ resource "aws_apigatewayv2_route" "state_dump_route" {
 resource "aws_lambda_permission" "allow_apigateway" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.stateDump.function_name
+  function_name = "stateDump"
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.state_dump_api.execution_arn}/*/*"
 }
