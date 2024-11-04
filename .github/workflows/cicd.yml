@@ -46,7 +46,8 @@ jobs:
       - name: Get ECR Repository Name
         id: ecr_output
         run: |
-          echo "ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)" >> $GITHUB_ENV
+          ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)
+          echo "ECR_REPOSITORY=$ECR_REPOSITORY" >> $GITHUB_OUTPUT
         working-directory: ./terraform
 
     outputs:
