@@ -1,4 +1,4 @@
-- name: Deploy Docker images to ECR and update Lambda functions
+- name: Deploy Docker images to ECR and create/update Lambda functions
   hosts: localhost
   vars:
     aws_region: "us-west-2"
@@ -37,15 +37,20 @@
             push: yes
           when: ecr_login is succeeded
 
-    - name: Update Lambda function image URI
+    - name: Create or update Lambda functions with ECR images
       loop:
-        - { function_name: "trajectory", tag: "trajectory" }
-        - { function_name: "lights", tag: "lights" }
-        - { function_name: "roadValidation", tag: "roadValidation" }
-        - { function_name: "stateDump", tag: "stateDump" }
+        - { function_name: "trajectory", tag: "trajectory", env_vars: { DYNAMODB_TABLE: "TrafficSimulation", VEHICLE_TRAJECTORY_QUEUE: "VehicleTrajectoryQueue" } }
+        - { function_name: "lights", tag: "lights", env_vars: { DYNAMODB_TABLE: "TrafficSimulation", TRAFFIC_LIGHT_QUEUE: "TrafficLightQueue" } }
+        - { function_name: "roadValidation", tag: "roadValidation", env_vars: { DYNAMODB_TABLE: "TrafficSimulation" } }
+        - { function_name: "stateDump", tag: "stateDump", env_vars: { DYNAMODB_TABLE: "TrafficSimulation" } }
       aws_lambda:
         name: "{{ item.function_name }}"
+        role: "arn:aws:iam::{{ aws_account_id }}:role/LambdaExecutionRole"
+        package_type: "Image"
         image_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
+        memory_size: 128
+        timeout: 30
+        environment_variables: "{{ item.env_vars }}"
         state: present
         region: "{{ aws_region }}"
       environment:
