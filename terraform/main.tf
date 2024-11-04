@@ -18,6 +18,9 @@ provider "aws" {
   region = var.aws_region
 }
 
+# Data resource to get the current AWS account ID
+data "aws_caller_identity" "current" {}
+
 # DynamoDB Table for Simulation Data
 resource "aws_dynamodb_table" "traffic_simulation" {
   name           = var.dynamodb_table_name
