@@ -1,18 +1,19 @@
-name: CICD
+name: Deploy Project to AWS Lambda and ECR
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-west-2
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
 jobs:
   provision-aws:
     runs-on: ubuntu-latest
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: us-east-2
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,17 +32,14 @@ jobs:
         working-directory: ./terraform
 
       - name: Terraform Validate
-        id: validate
         run: terraform validate
         working-directory: ./terraform
 
       - name: Terraform Plan
-        id: plan
         run: terraform plan
         working-directory: ./terraform
 
       - name: Provision AWS resources
-        id: apply
         run: terraform apply -auto-approve
         working-directory: ./terraform
 
@@ -69,12 +67,6 @@ jobs:
           - name: stateDump
             tag: stateDump
 
-    env:
-      AWS_REGION: us-west-2
-      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -84,30 +76,22 @@ jobs:
         with:
           install: true
 
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
       - name: Build and push ${{ matrix.lambda.name }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ needs.provision-aws.outputs.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}
-          build-args: |
-            LAMBDA_FILE=${{ matrix.lambda.name }}
-          cache-from: type=gha,scope=my-lambda-caching-scope
-          cache-to: type=gha,mode=max,scope=my-lambda-caching-scope
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker buildx build \
+            --build-arg LAMBDA_FILE=${{ matrix.lambda.name }} \
+            --tag $ECR_REGISTRY/${{ needs.provision-aws.outputs.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
+            --push .
 
   deploy-ansible:
     needs: build-and-push
     runs-on: ubuntu-latest
-    env:
-      AWS_REGION: us-west-2
-      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
