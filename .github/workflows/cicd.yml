@@ -51,6 +51,9 @@ jobs:
           echo "ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)" >> $GITHUB_ENV
         working-directory: ./terraform
 
+      - name: Debug ECR Repository Name
+        run: echo "ECR_REPOSITORY is set to ${{ env.ECR_REPOSITORY }}"
+
     outputs:
       ECR_REPOSITORY: ${{ steps.ecr_output.outputs.ECR_REPOSITORY }}
 
