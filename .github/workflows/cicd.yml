@@ -1,4 +1,4 @@
-name: Deploy Project to AWS Lambda and ECR
+name: CICD
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: us-east-2
+  AWS_REGION: us-east-1
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   provision-aws:
@@ -28,14 +29,16 @@ jobs:
           terraform init \
             -backend-config="bucket=mvilsoet-bucket" \
             -backend-config="key=terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
+            -backend-config="region=us-east-2"
         working-directory: ./terraform
 
       - name: Terraform Validate
+        id: validate
         run: terraform validate
         working-directory: ./terraform
 
       - name: Terraform Plan
+        id: plan
         run: terraform plan
         working-directory: ./terraform
 
@@ -49,23 +52,22 @@ jobs:
           echo "ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)" >> $GITHUB_ENV
         working-directory: ./terraform
 
-    outputs:
-      ECR_REPOSITORY: ${{ steps.ecr_output.outputs.ECR_REPOSITORY }}
-
   build-and-push:
     needs: provision-aws
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        lambda:
-          - name: trajectory
-            tag: trajectory
-          - name: lights
-            tag: lights
-          - name: roadValidation
-            tag: roadValidation
-          - name: stateDump
-            tag: stateDump
+        lambda_name:
+          - trajectory
+          - lights
+          - roadValidation
+          - stateDump
+
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      ECR_REPOSITORY: ${{ needs.provision-aws.outputs.ECR_REPOSITORY }}
+      IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - name: Checkout code
@@ -77,21 +79,26 @@ jobs:
           install: true
 
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v1
+        run: aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-      - name: Build and push ${{ matrix.lambda.name }}
+      - name: Build and Push Docker Image to ECR
         env:
-          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_URI: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
         run: |
-          docker buildx build \
-            --build-arg LAMBDA_FILE=${{ matrix.lambda.name }} \
-            --tag $ECR_REGISTRY/${{ needs.provision-aws.outputs.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
-            --push .
+          docker build -t $IMAGE_URI --build-arg LAMBDA_FILE=${{ matrix.lambda_name }} .
+          docker push $IMAGE_URI
 
   deploy-ansible:
     needs: build-and-push
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+      IMAGE_TAG: ${{ github.sha }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
