@@ -1,0 +1,38 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-2
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  destroy-aws:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.1.7
+
+      - name: Terraform Init with S3 backend
+        run: |
+          terraform init \
+            -backend-config="bucket=mvilsoet-bucket" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+        working-directory: ./terraform
+
+      - name: Terraform Plan Destroy
+        id: plan_destroy
+        run: terraform plan -destroy -out=tfplan
+        working-directory: ./terraform
+
+      - name: Confirm and Destroy Infrastructure
+        run: terraform apply -auto-approve tfplan
+        working-directory: ./terraform
