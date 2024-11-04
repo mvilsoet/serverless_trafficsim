@@ -1,0 +1,53 @@
+- name: Deploy Docker images to ECR and update Lambda functions
+  hosts: localhost
+  vars:
+    aws_region: "us-west-2"
+    ecr_repository_name: "traffic-simulation-lambda-repo"
+    aws_account_id: "{{ lookup('env', 'AWS_ACCOUNT_ID') }}"
+    aws_access_key: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
+    aws_secret_key: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
+
+  tasks:
+    - name: Authenticate Docker to ECR
+      shell: aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
+      register: ecr_login
+
+    - name: Build and tag Docker images for each Lambda function
+      loop:
+        - { name: "trajectory", tag: "trajectory" }
+        - { name: "lights", tag: "lights" }
+        - { name: "roadValidation", tag: "roadValidation" }
+        - { name: "stateDump", tag: "stateDump" }
+      block:
+        - name: Build Docker image
+          docker_image:
+            name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
+            build: .
+            tag: "{{ item.tag }}"
+            buildargs:
+              LAMBDA_FILE: "{{ item.name }}"
+          when: ecr_login is succeeded
+
+        - name: Push Docker image to ECR
+          docker_image:
+            name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
+            push: yes
+          when: ecr_login is succeeded
+
+    - name: Update Lambda function image URI
+      loop:
+        - { function_name: "trajectory", tag: "trajectory" }
+        - { function_name: "lights", tag: "lights" }
+        - { function_name: "roadValidation", tag: "roadValidation" }
+        - { function_name: "stateDump", tag: "stateDump" }
+      aws_lambda:
+        name: "{{ item.function_name }}"
+        image_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
+        state: present
+        region: "{{ aws_region }}"
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
