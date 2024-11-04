@@ -108,12 +108,3 @@ resource "aws_apigatewayv2_route" "state_dump_route" {
   route_key = "GET /stateDump"
   target    = "integrations/${aws_apigatewayv2_integration.state_dump_integration.id}"
 }
-
-# Lambda Permission for API Gateway
-resource "aws_lambda_permission" "allow_apigateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = "stateDump"
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.state_dump_api.execution_arn}/*/*"
-}
