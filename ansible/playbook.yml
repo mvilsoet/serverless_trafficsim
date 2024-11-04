@@ -1,12 +1,31 @@
 - name: Deploy Docker images to ECR and create/update Lambda functions
   hosts: localhost
   vars:
-    aws_region: "us-west-2"
+    aws_region: "{{ lookup('env', 'AWS_REGION') }}"
     ecr_repository_name: "traffic-simulation-lambda-repo"
     aws_account_id: "{{ lookup('env', 'AWS_ACCOUNT_ID') }}"
     aws_access_key: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
     aws_secret_key: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
     api_gateway_arn: "arn:aws:execute-api:{{ aws_region }}:{{ aws_account_id }}:{{ lookup('env', 'API_GATEWAY_ID') }}/*/*"
+    lambda_functions:
+      - function_name: "trajectory"
+        tag: "trajectory"
+        env_vars:
+          DYNAMODB_TABLE: "TrafficSimulation"
+          VEHICLE_TRAJECTORY_QUEUE: "VehicleTrajectoryQueue"
+      - function_name: "lights"
+        tag: "lights"
+        env_vars:
+          DYNAMODB_TABLE: "TrafficSimulation"
+          TRAFFIC_LIGHT_QUEUE: "TrafficLightQueue"
+      - function_name: "roadValidation"
+        tag: "roadValidation"
+        env_vars:
+          DYNAMODB_TABLE: "TrafficSimulation"
+      - function_name: "stateDump"
+        tag: "stateDump"
+        env_vars:
+          DYNAMODB_TABLE: "TrafficSimulation"
 
   tasks:
     - name: Authenticate Docker to ECR
@@ -15,35 +34,32 @@
         AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
         AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
       register: ecr_login
+      changed_when: false
 
-    - name: Build and tag Docker images for each Lambda function
-      loop:
-        - { name: "trajectory", tag: "trajectory" }
-        - { name: "lights", tag: "lights" }
-        - { name: "roadValidation", tag: "roadValidation" }
-        - { name: "stateDump", tag: "stateDump" }
-      block:
-        - name: Build Docker image
-          docker_image:
-            name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
-            build: .
-            tag: "{{ item.tag }}"
-            buildargs:
-              LAMBDA_FILE: "{{ item.name }}"
-          when: ecr_login is succeeded
+    - name: Build Docker image for {{ item.function_name }}
+      docker_image:
+        name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
+        build: .
+        tag: "{{ item.tag }}"
+        buildargs:
+          LAMBDA_FILE: "{{ item.function_name }}"
+      when:
+        - ecr_login is succeeded
+      loop: "{{ lambda_functions }}"
+      loop_control:
+        label: "{{ item.function_name }}"
 
-        - name: Push Docker image to ECR
-          docker_image:
-            name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
-            push: yes
-          when: ecr_login is succeeded
+    - name: Push Docker image to ECR for {{ item.function_name }}
+      docker_image:
+        name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
+        push: yes
+      when:
+        - ecr_login is succeeded
+      loop: "{{ lambda_functions }}"
+      loop_control:
+        label: "{{ item.function_name }}"
 
     - name: Create or update Lambda functions with ECR images
-      loop:
-        - { function_name: "trajectory", tag: "trajectory", env_vars: { DYNAMODB_TABLE: "TrafficSimulation", VEHICLE_TRAJECTORY_QUEUE: "VehicleTrajectoryQueue" } }
-        - { function_name: "lights", tag: "lights", env_vars: { DYNAMODB_TABLE: "TrafficSimulation", TRAFFIC_LIGHT_QUEUE: "TrafficLightQueue" } }
-        - { function_name: "roadValidation", tag: "roadValidation", env_vars: { DYNAMODB_TABLE: "TrafficSimulation" } }
-        - { function_name: "stateDump", tag: "stateDump", env_vars: { DYNAMODB_TABLE: "TrafficSimulation" } }
       aws_lambda:
         name: "{{ item.function_name }}"
         role: "arn:aws:iam::{{ aws_account_id }}:role/LambdaExecutionRole"
@@ -57,6 +73,9 @@
       environment:
         AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
         AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
+      loop: "{{ lambda_functions }}"
+      loop_control:
+        label: "{{ item.function_name }}"
 
     - name: Add permission for API Gateway to invoke stateDump Lambda function
       aws_lambda_permission:
