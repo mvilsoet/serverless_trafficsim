@@ -6,6 +6,7 @@
     aws_account_id: "{{ lookup('env', 'AWS_ACCOUNT_ID') }}"
     aws_access_key: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
     aws_secret_key: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
+    api_gateway_arn: "arn:aws:execute-api:{{ aws_region }}:{{ aws_account_id }}:{{ lookup('env', 'API_GATEWAY_ID') }}/*/*"
 
   tasks:
     - name: Authenticate Docker to ECR
@@ -53,6 +54,17 @@
         environment_variables: "{{ item.env_vars }}"
         state: present
         region: "{{ aws_region }}"
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
+
+    - name: Add permission for API Gateway to invoke stateDump Lambda function
+      aws_lambda_permission:
+        function_name: "stateDump"
+        statement_id: "AllowAPIGatewayInvoke"
+        action: "lambda:InvokeFunction"
+        principal: "apigateway.amazonaws.com"
+        source_arn: "{{ api_gateway_arn }}"
       environment:
         AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
         AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
