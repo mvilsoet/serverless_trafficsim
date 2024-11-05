@@ -18,7 +18,7 @@
 
   tasks:
     - name: Create or update Lambda functions
-      aws_lambda:
+      community.aws.aws_lambda:
         state: present
         name: "{{ item.name }}"
         image_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository }}:{{ item.tag }}-{{ image_tag }}"
@@ -26,14 +26,14 @@
       loop: "{{ lambda_functions }}"
 
     - name: Create API Gateway
-      aws_apigatewayv2:
+      community.aws.aws_apigatewayv2:
         name: "StateDumpAPI"
         protocol_type: "HTTP"
         state: present
       register: apigw
 
     - name: Create API Gateway Integration
-      aws_apigatewayv2_integration:
+      community.aws.aws_apigatewayv2_integration:
         api_id: "{{ apigw.api['ApiId'] }}"
         integration_type: "AWS_PROXY"
         integration_uri: "arn:aws:lambda:{{ aws_region }}:{{ aws_account_id }}:function:stateDump"
@@ -42,17 +42,25 @@
       register: integration
 
     - name: Create API Gateway Route
-      aws_apigatewayv2_route:
+      community.aws.aws_apigatewayv2_route:
         api_id: "{{ apigw.api['ApiId'] }}"
         route_key: "GET /stateDump"
         target: "integrations/{{ integration.integration['IntegrationId'] }}"
         state: present
 
     - name: Deploy API
-      aws_apigatewayv2_deployment:
+      community.aws.aws_apigatewayv2_deployment:
         api_id: "{{ apigw.api['ApiId'] }}"
         description: "Initial deployment"
         state: present
+
+    - name: Add permission for API Gateway to invoke Lambda
+      community.aws.aws_lambda_permission:
+        state: present
+        function_name: "stateDump"
+        action: "lambda:InvokeFunction"
+        principal: "apigateway.amazonaws.com"
+        source_arn: "arn:aws:execute-api:{{ aws_region }}:{{ aws_account_id }}:{{ apigw.api['ApiId'] }}/*/*/stateDump"
 
     - name: Output API Endpoint
       debug:
