@@ -89,7 +89,7 @@ jobs:
             --build-arg LAMBDA_FILE=${{ matrix.lambda.name }} \
             --tag $ECR_REGISTRY/${{ needs.provision-aws.outputs.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
             --push .
-  
+    
   deploy-ansible:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -103,7 +103,7 @@ jobs:
           sudo apt-get remove -y ansible
           sudo apt-get install -y python3-pip
           pip3 install --upgrade pip
-          pip3 install ansible==2.14.1 boto3 botocore
+          pip3 install ansible boto3 botocore
           ansible --version
   
       - name: Install Ansible Collections
@@ -120,4 +120,4 @@ jobs:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           ECR_REPOSITORY: ${{ needs.provision-aws.outputs.ECR_REPOSITORY }}
         run: ansible-playbook ansible/playbook.yml
-  
+
