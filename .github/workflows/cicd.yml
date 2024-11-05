@@ -103,6 +103,9 @@ jobs:
           sudo apt-get install -y python3-pip
           pip3 install ansible boto3 botocore
 
+          # Install the community.aws collection
+          ansible-galaxy collection install community.aws
+
       - name: Run Ansible Playbook to deploy Lambda functions and API Gateway
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
