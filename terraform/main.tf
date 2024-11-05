@@ -90,21 +90,3 @@ resource "aws_iam_role_policy_attachment" "lambda_logs_policy" {
   role       = aws_iam_role.lambda_exec_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
-
-# API Gateway for Visualization (State Dump)
-resource "aws_apigatewayv2_api" "state_dump_api" {
-  name          = "StateDumpAPI"
-  protocol_type = "HTTP"
-}
-
-resource "aws_apigatewayv2_integration" "state_dump_integration" {
-  api_id           = aws_apigatewayv2_api.state_dump_api.id
-  integration_type = "AWS_PROXY"
-  integration_uri  = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:stateDump"
-}
-
-resource "aws_apigatewayv2_route" "state_dump_route" {
-  api_id    = aws_apigatewayv2_api.state_dump_api.id
-  route_key = "GET /stateDump"
-  target    = "integrations/${aws_apigatewayv2_integration.state_dump_integration.id}"
-}
