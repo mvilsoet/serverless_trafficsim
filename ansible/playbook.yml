@@ -1,89 +1,60 @@
-- name: Deploy Docker images to ECR and create/update Lambda functions
+---
+- name: Deploy Lambda Functions and API Gateway
   hosts: localhost
+  connection: local
   vars:
-    aws_region: "{{ lookup('env', 'AWS_REGION') }}"
-    ecr_repository_name: "traffic-simulation-lambda-repo"
+    aws_region: "us-east-2"
     aws_account_id: "{{ lookup('env', 'AWS_ACCOUNT_ID') }}"
-    aws_access_key: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}"
-    aws_secret_key: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}"
-    api_gateway_arn: "arn:aws:execute-api:{{ aws_region }}:{{ aws_account_id }}:{{ lookup('env', 'API_GATEWAY_ID') }}/*/*"
+    ecr_repository: "{{ lookup('env', 'ECR_REPOSITORY') }}"
+    image_tag: "{{ lookup('env', 'GITHUB_SHA') }}"
     lambda_functions:
-      - function_name: "trajectory"
-        tag: "trajectory"
-        env_vars:
-          DYNAMODB_TABLE: "TrafficSimulation"
-          VEHICLE_TRAJECTORY_QUEUE: "VehicleTrajectoryQueue"
-      - function_name: "lights"
-        tag: "lights"
-        env_vars:
-          DYNAMODB_TABLE: "TrafficSimulation"
-          TRAFFIC_LIGHT_QUEUE: "TrafficLightQueue"
-      - function_name: "roadValidation"
-        tag: "roadValidation"
-        env_vars:
-          DYNAMODB_TABLE: "TrafficSimulation"
-      - function_name: "stateDump"
-        tag: "stateDump"
-        env_vars:
-          DYNAMODB_TABLE: "TrafficSimulation"
+      - name: 'trajectory'
+        tag: 'trajectory'
+      - name: 'lights'
+        tag: 'lights'
+      - name: 'roadValidation'
+        tag: 'roadValidation'
+      - name: 'stateDump'
+        tag: 'stateDump'
 
   tasks:
-    - name: Authenticate Docker to ECR
-      shell: aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com
-      environment:
-        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
-        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
-      register: ecr_login
-      changed_when: false
-
-    - name: Build Docker image for {{ item.function_name }}
-      docker_image:
-        name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
-        build: .
-        tag: "{{ item.tag }}"
-        buildargs:
-          LAMBDA_FILE: "{{ item.function_name }}"
-      when:
-        - ecr_login is succeeded
-      loop: "{{ lambda_functions }}"
-      loop_control:
-        label: "{{ item.function_name }}"
-
-    - name: Push Docker image to ECR for {{ item.function_name }}
-      docker_image:
-        name: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
-        push: yes
-      when:
-        - ecr_login is succeeded
-      loop: "{{ lambda_functions }}"
-      loop_control:
-        label: "{{ item.function_name }}"
-
-    - name: Create or update Lambda functions with ECR images
+    - name: Create or update Lambda functions
       aws_lambda:
-        name: "{{ item.function_name }}"
-        role: "arn:aws:iam::{{ aws_account_id }}:role/LambdaExecutionRole"
-        package_type: "Image"
-        image_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository_name }}:{{ item.tag }}"
-        memory_size: 128
-        timeout: 30
-        environment_variables: "{{ item.env_vars }}"
         state: present
-        region: "{{ aws_region }}"
-      environment:
-        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
-        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
+        name: "{{ item.name }}"
+        image_uri: "{{ aws_account_id }}.dkr.ecr.{{ aws_region }}.amazonaws.com/{{ ecr_repository }}:{{ item.tag }}-{{ image_tag }}"
+        role: "arn:aws:iam::{{ aws_account_id }}:role/LambdaExecutionRole"
       loop: "{{ lambda_functions }}"
-      loop_control:
-        label: "{{ item.function_name }}"
 
-    - name: Add permission for API Gateway to invoke stateDump Lambda function
-      aws_lambda_permission:
-        function_name: "stateDump"
-        statement_id: "AllowAPIGatewayInvoke"
-        action: "lambda:InvokeFunction"
-        principal: "apigateway.amazonaws.com"
-        source_arn: "{{ api_gateway_arn }}"
-      environment:
-        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
-        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
+    - name: Create API Gateway
+      aws_apigatewayv2:
+        name: "StateDumpAPI"
+        protocol_type: "HTTP"
+        state: present
+      register: apigw
+
+    - name: Create API Gateway Integration
+      aws_apigatewayv2_integration:
+        api_id: "{{ apigw.api['ApiId'] }}"
+        integration_type: "AWS_PROXY"
+        integration_uri: "arn:aws:lambda:{{ aws_region }}:{{ aws_account_id }}:function:stateDump"
+        payload_format_version: "2.0"
+        state: present
+      register: integration
+
+    - name: Create API Gateway Route
+      aws_apigatewayv2_route:
+        api_id: "{{ apigw.api['ApiId'] }}"
+        route_key: "GET /stateDump"
+        target: "integrations/{{ integration.integration['IntegrationId'] }}"
+        state: present
+
+    - name: Deploy API
+      aws_apigatewayv2_deployment:
+        api_id: "{{ apigw.api['ApiId'] }}"
+        description: "Initial deployment"
+        state: present
+
+    - name: Output API Endpoint
+      debug:
+        msg: "API Endpoint: {{ apigw.api['ApiEndpoint'] }}"
