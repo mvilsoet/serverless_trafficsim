@@ -96,9 +96,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
-      - name: Debug ECR_REPOSITORY
-        run: echo "ECR_REPOSITORY=${{ needs.provision-aws.outputs.ECR_REPOSITORY }}"
 
       - name: Install Ansible and dependencies
         run: |
@@ -106,13 +103,27 @@ jobs:
           sudo apt-get remove -y ansible
           sudo apt-get install -y python3-pip
           pip3 install --upgrade pip
-          pip3 install ansible boto3 botocore
+          pip3 install --user "ansible>=2.10" boto3 botocore
+          export PATH="$HOME/.local/bin:$PATH"
           ansible --version
+          which ansible
   
       - name: Install Ansible Collections
         run: |
+          export PATH="$HOME/.local/bin:$PATH"
           ansible-galaxy collection install community.aws
+          ansible-galaxy collection install amazon.aws
           ansible-galaxy collection list
+  
+      - name: Ansible Configuration
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ansible-config dump --only-changed
+  
+      - name: List Ansible Modules
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ansible-doc -l | grep aws
   
       - name: Run Ansible Playbook to deploy Lambda functions and API Gateway
         env:
@@ -122,5 +133,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           ECR_REPOSITORY: ${{ needs.provision-aws.outputs.ECR_REPOSITORY }}
-        run: ansible-playbook ansible/playbook.yml
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ansible-playbook ansible/playbook.yml -vvv
 
