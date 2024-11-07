@@ -91,12 +91,15 @@ jobs:
             --push .
     
   deploy-ansible:
-    needs: build-and-push
+    needs: [provision-aws, build-and-push]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-  
+        
+      - name: Debug ECR_REPOSITORY
+        run: echo "ECR_REPOSITORY=${{ needs.provision-aws.outputs.ECR_REPOSITORY }}"
+
       - name: Install Ansible and dependencies
         run: |
           sudo apt-get update
