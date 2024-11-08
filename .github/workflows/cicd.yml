@@ -79,6 +79,7 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker buildx build \
+            --platform linux/amd64 \
             --build-arg LAMBDA_FILE=${{ matrix.lambda.name }} \
             --tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
             --push .
