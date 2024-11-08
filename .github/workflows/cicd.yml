@@ -32,10 +32,6 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}"
         working-directory: ./terraform
 
-      - name: Remove ECR Repository from Terraform State
-        run: terraform state rm aws_ecr_repository.lambda_repository
-        working-directory: ./terraform
-
       - name: Terraform Validate
         run: terraform validate
         working-directory: ./terraform
