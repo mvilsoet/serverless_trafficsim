@@ -73,16 +73,23 @@ jobs:
         with:
           region: ${{ env.AWS_REGION }}
 
-      - name: Build and push ${{ matrix.lambda.name }}
+      - name: Build image for ${{ matrix.lambda.name }}
+        env:
+          DOCKER_BUILDKIT: 0
+          ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            --build-arg LAMBDA_FILE=${{ matrix.lambda.name }} \
+            --tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
+            .
+
+      - name: Push image to ECR
         env:
           ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --build-arg LAMBDA_FILE=${{ matrix.lambda.name }} \
-            --tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
-            --push .
+          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG}
 
       - name: Update Lambda Function Code
         env:
