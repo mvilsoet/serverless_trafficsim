@@ -10,6 +10,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  ECR_REPOSITORY: traffic-simulation-lambda-repo
 
 jobs:
   provision-aws:
@@ -43,17 +44,7 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: ./terraform
 
-      - name: Get ECR Repository Name
-        id: ecr_output
-        run: |
-          ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)
-          echo "ECR_REPOSITORY=$ECR_REPOSITORY" >> $GITHUB_OUTPUT
-        working-directory: ./terraform
-
-    outputs:
-      ECR_REPOSITORY: ${{ steps.ecr_output.outputs.ECR_REPOSITORY }}
-
-  build-and-push:
+  build-and-update:
     needs: provision-aws
     runs-on: ubuntu-latest
     strategy:
@@ -79,61 +70,25 @@ jobs:
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
+        with:
+          region: ${{ env.AWS_REGION }}
 
       - name: Build and push ${{ matrix.lambda.name }}
         env:
-          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker buildx build \
             --build-arg LAMBDA_FILE=${{ matrix.lambda.name }} \
-            --tag $ECR_REGISTRY/${{ needs.provision-aws.outputs.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
+            --tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${IMAGE_TAG} \
             --push .
-    
-  deploy-ansible:
-    needs: [provision-aws, build-and-push]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Install Ansible and dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get remove -y ansible
-          sudo apt-get install -y python3-pip
-          pip3 install --upgrade pip
-          pip3 install --user "ansible>=2.10" boto3 botocore
-          export PATH="$HOME/.local/bin:$PATH"
-          ansible --version
-          which ansible
-  
-      - name: Install Ansible Collections
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          ansible-galaxy collection install community.aws
-          ansible-galaxy collection install amazon.aws
-          ansible-galaxy collection list
-  
-      - name: Ansible Configuration
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          ansible-config dump --only-changed
-  
-      - name: List Ansible Modules
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          ansible-doc -l | grep aws
-  
-      - name: Run Ansible Playbook to deploy Lambda functions and API Gateway
+      - name: Update Lambda Function Code
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ env.AWS_REGION }}
-          GITHUB_SHA: ${{ github.sha }}
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-          ECR_REPOSITORY: ${{ needs.provision-aws.outputs.ECR_REPOSITORY }}
+          FUNCTION_NAME: ${{ matrix.lambda.name }}
+          IMAGE_URI: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ matrix.lambda.tag }}-${{ github.sha }}
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          ansible-playbook ansible/playbook.yml -vvv
-
+          aws lambda update-function-code \
+            --function-name $FUNCTION_NAME \
+            --image-uri $IMAGE_URI \
+            --region ${{ env.AWS_REGION }}
