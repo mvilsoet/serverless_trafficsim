@@ -33,6 +33,6 @@ jobs:
           # Build and tag the placeholder image for each Lambda function
           for lambda in trajectory lights roadValidation stateDump; do
             IMAGE_TAG=$lambda
-            docker build -f .github/Dockerfile.lambda-placeholder -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+            docker build -f Dockerfile.lambda-placeholder -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
             docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           done
