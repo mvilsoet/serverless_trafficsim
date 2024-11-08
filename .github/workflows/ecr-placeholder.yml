@@ -25,14 +25,14 @@ jobs:
         with:
           aws-region: us-east-2
 
-      - name: Build and Push Placeholder Images
+      - name: Build and Push AWS Lambda-Compatible Placeholder Images
         env:
           ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com
           ECR_REPOSITORY: traffic-simulation-lambda-repo
         run: |
+          # Build and tag the placeholder image for each Lambda function
           for lambda in trajectory lights roadValidation stateDump; do
             IMAGE_TAG=$lambda
-            docker pull hello-world
-            docker tag hello-world:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            docker build -f Dockerfile.lambda-placeholder -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
             docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           done
