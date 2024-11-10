@@ -34,7 +34,7 @@ jobs:
           ECR_REPOSITORY: lambda_repository
         run: |
           # Build and tag the placeholder image for each Lambda function
-          for lambda in calculator results stateDump; do
+          for lambda in calculator results; do
             IMAGE_TAG=$lambda
             docker build -f .github/Dockerfile.lambda-placeholder -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
             docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG

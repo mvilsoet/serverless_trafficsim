@@ -10,7 +10,7 @@ variable "dynamodb_table_name" {
 
 variable "ecr_repository_name" {
   type    = string
-  default = "my-lambda-repo"
+  default = "lambda_repository"
 }
 
 variable "lambda_functions" {
