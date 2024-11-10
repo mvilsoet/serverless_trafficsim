@@ -19,7 +19,7 @@ variable "lambda_functions" {
     tag  = string
   }))
   default = [
-    { name = "calculator", tag = "latest" },
-    { name = "results", tag = "latest" }
+    { name = "calculator", tag = "calculator" },
+    { name = "results", tag = "results" }
   ]
 }
