@@ -3,6 +3,9 @@ FROM public.ecr.aws/lambda/python:3.8
 # Set up a build argument for the Lambda file name
 ARG LAMBDA_FILE
 
+# Set environment variables
+ENV DYNAMODB_TABLE=TrafficSimulation
+
 # Install dependencies
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
