@@ -20,8 +20,8 @@ jobs:
       - name: Check if ECR Repository exists
         id: ecr_repo
         run: |
-          aws ecr describe-repositories --repository-names lambda_repository || \
-          aws ecr create-repository --repository-name lambda_repository
+          aws ecr describe-repositories --repository-names traffic-simulation-lambda-repo || \
+          aws ecr create-repository --repository-name traffic-simulation-lambda-repo
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
@@ -31,7 +31,7 @@ jobs:
       - name: Build and Push AWS Lambda-Compatible Placeholder Images
         env:
           ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-2.amazonaws.com
-          ECR_REPOSITORY: lambda_repository
+          ECR_REPOSITORY: traffic-simulation-lambda-repo
         run: |
           # Build and tag the placeholder image for each Lambda function
           for lambda in calculator results; do

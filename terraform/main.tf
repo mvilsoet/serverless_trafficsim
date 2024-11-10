@@ -21,7 +21,7 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 # Data source for existing ECR Repository
-data "aws_ecr_repository" "lambda_repository" {
+data "aws_ecr_repository" "traffic-simulation-lambda-repo" {
   name = var.ecr_repository_name
 }
 
@@ -85,7 +85,7 @@ resource "aws_lambda_function" "lambda_functions" {
   function_name = var.lambda_functions[count.index]["name"]
   role          = aws_iam_role.lambda_exec_role.arn
   package_type  = "Image"
-  image_uri     = "${data.aws_ecr_repository.lambda_repository.repository_url}:${var.lambda_functions[count.index]["tag"]}"
+  image_uri     = "${data.aws_ecr_repository.traffic-simulation-lambda-repo.repository_url}:${var.lambda_functions[count.index]["tag"]}"
 }
 
 # API Gateway for Simulation Lambda

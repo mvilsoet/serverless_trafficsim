@@ -10,7 +10,7 @@ variable "dynamodb_table_name" {
 
 variable "ecr_repository_name" {
   type    = string
-  default = "lambda_repository"
+  default = "traffic-simulation-lambda-repo"
 }
 
 variable "lambda_functions" {
