@@ -34,7 +34,7 @@ jobs:
           ECR_REPOSITORY: traffic-simulation-lambda-repo
         run: |
           # Build and tag the placeholder image for each Lambda function
-          for lambda in trajectory lights roadValidation stateDump; do
+          for lambda in calculator results stateDump; do
             IMAGE_TAG=$lambda
             docker build -f .github/Dockerfile.lambda-placeholder -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
             docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG

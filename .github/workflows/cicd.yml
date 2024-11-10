@@ -50,14 +50,11 @@ jobs:
     strategy:
       matrix:
         lambda:
-          - name: trajectory
-            tag: trajectory
-          - name: lights
-            tag: lights
-          - name: roadValidation
-            tag: roadValidation
-          - name: stateDump
-            tag: stateDump
+          - name: calculator
+            tag: calculator
+          - name: results
+            tag: results
+
 
     steps:
       - name: Checkout code

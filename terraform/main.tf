@@ -1,4 +1,3 @@
-# Terraform backend configuration (storing state in S3)
 terraform {
   backend "s3" {
     bucket = "mvilsoet-bucket"
@@ -30,26 +29,15 @@ data "aws_ecr_repository" "lambda_repository" {
 resource "aws_dynamodb_table" "traffic_simulation" {
   name           = var.dynamodb_table_name
   billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "entity_id"
+  hash_key       = "timestamp"  # Changed from entity_id to timestamp for uniqueness
 
   attribute {
-    name = "entity_id"
+    name = "timestamp"
     type = "S"
-  }
-
-  attribute {
-    name = "entity_type"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name               = "EntityTypeIndex"
-    hash_key           = "entity_type"
-    projection_type    = "ALL"
   }
 }
 
-# SQS Queues
+# SQS Queues (if needed for other functionality)
 resource "aws_sqs_queue" "vehicle_trajectory_queue" {
   name = "VehicleTrajectoryQueue"
 }
@@ -91,57 +79,86 @@ resource "aws_iam_role_policy_attachment" "lambda_logs_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Lambda Functions
+# Lambda Functions for Simulation and Results Retrieval
 resource "aws_lambda_function" "lambda_functions" {
-  count         = length(var.lambda_functions)
+  count         = 2
   function_name = var.lambda_functions[count.index]["name"]
   role          = aws_iam_role.lambda_exec_role.arn
   package_type  = "Image"
   image_uri     = "${data.aws_ecr_repository.lambda_repository.repository_url}:${var.lambda_functions[count.index]["tag"]}"
-
-  # Initial deployment uses the placeholder image
-  # Update the code later via AWS CLI in GitHub Actions
 }
 
-# API Gateway for stateDump Lambda function
+# API Gateway for Simulation Lambda
 resource "aws_api_gateway_rest_api" "api" {
-  name        = "StateDumpAPI"
-  description = "API Gateway for StateDump Lambda function"
+  name        = "SimulationAPI"
+  description = "API Gateway for Simulation Lambda functions"
 }
 
-resource "aws_api_gateway_resource" "state_dump" {
+resource "aws_api_gateway_resource" "simulation" {
   rest_api_id = aws_api_gateway_rest_api.api.id
   parent_id   = aws_api_gateway_rest_api.api.root_resource_id
-  path_part   = "stateDump"
+  path_part   = "simulate"
 }
 
-resource "aws_api_gateway_method" "state_dump_get" {
+resource "aws_api_gateway_method" "simulate_post" {
   rest_api_id   = aws_api_gateway_rest_api.api.id
-  resource_id   = aws_api_gateway_resource.state_dump.id
+  resource_id   = aws_api_gateway_resource.simulation.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "simulate_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.api.id
+  resource_id             = aws_api_gateway_resource.simulation.id
+  http_method             = aws_api_gateway_method.simulate_post.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.lambda_functions[0].invoke_arn
+}
+
+# API Gateway for Results Getter Lambda
+resource "aws_api_gateway_resource" "results" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "results"
+}
+
+resource "aws_api_gateway_method" "results_get" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.results.id
   http_method   = "GET"
   authorization = "NONE"
 }
 
-resource "aws_api_gateway_integration" "lambda_integration" {
+resource "aws_api_gateway_integration" "results_integration" {
   rest_api_id             = aws_api_gateway_rest_api.api.id
-  resource_id             = aws_api_gateway_resource.state_dump.id
-  http_method             = aws_api_gateway_method.state_dump_get.http_method
+  resource_id             = aws_api_gateway_resource.results.id
+  http_method             = aws_api_gateway_method.results_get.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.lambda_functions[3].invoke_arn
+  uri                     = aws_lambda_function.lambda_functions[1].invoke_arn
 }
 
+# Deploy the API Gateway
 resource "aws_api_gateway_deployment" "api_deployment" {
-  depends_on  = [aws_api_gateway_integration.lambda_integration]
+  depends_on  = [aws_api_gateway_integration.simulate_integration, aws_api_gateway_integration.results_integration]
   rest_api_id = aws_api_gateway_rest_api.api.id
   stage_name  = "prod"
 }
 
-# Permission for API Gateway to invoke Lambda
-resource "aws_lambda_permission" "api_gateway_permission" {
-  statement_id  = "AllowAPIGatewayInvoke"
+# Permission for API Gateway to invoke both Lambdas
+resource "aws_lambda_permission" "api_gateway_permission_simulation" {
+  statement_id  = "AllowAPIGatewayInvokeSimulation"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.lambda_functions[3].function_name
+  function_name = aws_lambda_function.lambda_functions[0].function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "api_gateway_permission_results" {
+  statement_id  = "AllowAPIGatewayInvokeResults"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.lambda_functions[1].function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
 }
