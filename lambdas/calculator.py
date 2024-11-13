@@ -11,53 +11,65 @@ table = dynamodb.Table(os.getenv("DYNAMODB_TABLE"))
 
 def lambda_handler(event, context):
     try:
-        # Parse input parameters from the event
-        simulation_params = json.loads(event['body'])
-        time_step = simulation_params.get("time_step", 1)
-        
-        # Validate time_step is a positive number
-        if not isinstance(time_step, (int, float)) or time_step <= 0:
-            return {
-                'statusCode': 400,
-                'body': json.dumps("Invalid time_step: must be a positive number.")
-            }
-        
-        # Convert time_step to Decimal for DynamoDB compatibility
-        time_step = Decimal(str(time_step))
+        # Process each record from the SQS queue
+        for record in event['Records']:
+            # Parse the SQS message
+            message = json.loads(record['body'])
 
-        cars = []
-        stats = {"total_distance": Decimal('0'), "average_speed": Decimal('0')}
-
-        # Simulate movements for 5 cars
-        for car_id in range(1, 6):
-            speed = random.randint(10, 50)  # Random speed in units per second
-            direction = {"x": random.choice([-1, 1]), "y": random.choice([-1, 1])}
+            # Check if the message is a SimulationRequest
+            if message.get("messageType") != "SimulationRequest":
+                continue
             
-            # Calculate position based on speed, direction, and time_step
-            position = {
-                "x": Decimal(direction["x"]) * Decimal(speed) * time_step,
-                "y": Decimal(direction["y"]) * Decimal(speed) * time_step
+            # Extract simulation parameters
+            simulation_params = message.get("simulationParams", {})
+            time_step = Decimal(str(simulation_params.get("time_step", 1.0)))
+            vehicle_count = int(simulation_params.get("vehicle_count", 5))
+
+            # Validate parameters
+            if time_step <= 0 or vehicle_count <= 0:
+                continue  # Skip invalid message
+
+            # Initialize stats and cars data
+            cars = []
+            stats = {
+                "total_distance": 0,
+                "total_time": 0,
+                "total_speed": 0
             }
-            distance = Decimal(speed) * time_step
-            stats["total_distance"] += distance
-            cars.append({"car_id": car_id, "position": position, "speed": Decimal(speed)})
-        
-        # Calculate average speed
-        stats["average_speed"] = sum(car["speed"] for car in cars) / Decimal(len(cars))
 
-        # Prepare and save the result to DynamoDB
-        result = {
-            "timestamp": datetime.now().isoformat(),
-            "cars": cars,
-            "stats": stats
-        }
-        table.put_item(Item=result)
+            # Run simulation
+            for _ in range(vehicle_count):
+                speed = random.uniform(20, 100)
+                distance = speed * float(time_step)
+                stats["total_distance"] += distance
+                stats["total_speed"] += speed
+                stats["total_time"] += time_step
+                cars.append({
+                    "speed": speed,
+                    "distance": distance,
+                    "time_step": float(time_step)
+                })
 
-        return {'statusCode': 200, 'body': json.dumps('Simulation completed and results saved.')}
-    
-    except Exception as e:
-        # Handle any other unexpected errors
+            # Calculate averages
+            stats["average_speed"] = stats["total_speed"] / vehicle_count
+            stats["average_time"] = stats["total_time"] / vehicle_count
+
+            # Prepare data for DynamoDB
+            item = {
+                "timestamp": datetime.now().isoformat(),
+                "stats": stats,
+                "vehicles": cars
+            }
+
+            # Save result to DynamoDB
+            table.put_item(Item=item)
+
         return {
-            'statusCode': 500,
-            'body': json.dumps(f"An error occurred: {str(e)}")
+            "statusCode": 200,
+            "body": json.dumps({"message": "Processed successfully"})
+        }
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"message": "Error processing event", "error": str(e)})
         }
