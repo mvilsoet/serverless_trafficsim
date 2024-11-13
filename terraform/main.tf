@@ -49,14 +49,14 @@ resource "aws_sqs_queue" "traffic_light_queue" {
 resource "aws_iam_role" "lambda_exec_role" {
   name = "LambdaExecutionRole"
   assume_role_policy = jsonencode({
-    "Version": "2012-10-17",
-    "Statement": [
+    "Version" : "2012-10-17",
+    "Statement" : [
       {
-        "Action": "sts:AssumeRole",
-        "Principal": {
-          "Service": "lambda.amazonaws.com"
+        "Action" : "sts:AssumeRole",
+        "Principal" : {
+          "Service" : "lambda.amazonaws.com"
         },
-        "Effect": "Allow"
+        "Effect" : "Allow"
       }
     ]
   })
@@ -82,14 +82,14 @@ resource "aws_iam_role_policy_attachment" "lambda_logs_policy" {
 resource "aws_iam_role" "api_gateway_sqs_role" {
   name = "ApiGatewaySqsRole"
   assume_role_policy = jsonencode({
-    "Version": "2012-10-17",
-    "Statement": [
+    "Version" : "2012-10-17",
+    "Statement" : [
       {
-        "Action": "sts:AssumeRole",
-        "Principal": {
-          "Service": "apigateway.amazonaws.com"
+        "Action" : "sts:AssumeRole",
+        "Principal" : {
+          "Service" : "apigateway.amazonaws.com"
         },
-        "Effect": "Allow"
+        "Effect" : "Allow"
       }
     ]
   })
@@ -98,12 +98,12 @@ resource "aws_iam_role" "api_gateway_sqs_role" {
 resource "aws_iam_role_policy" "api_gateway_sqs_policy" {
   role = aws_iam_role.api_gateway_sqs_role.name
   policy = jsonencode({
-    "Version": "2012-10-17",
-    "Statement": [
+    "Version" : "2012-10-17",
+    "Statement" : [
       {
-        "Effect": "Allow",
-        "Action": ["sqs:SendMessage"],
-        "Resource": [
+        "Effect" : "Allow",
+        "Action" : ["sqs:SendMessage"],
+        "Resource" : [
           aws_sqs_queue.vehicle_trajectory_queue.arn,
           aws_sqs_queue.traffic_light_queue.arn
         ]
@@ -119,6 +119,12 @@ resource "aws_lambda_function" "lambda_functions" {
   role          = aws_iam_role.lambda_exec_role.arn
   package_type  = "Image"
   image_uri     = "${data.aws_ecr_repository.traffic-simulation-lambda-repo.repository_url}:${var.lambda_functions[count.index]["tag"]}"
+
+  environment {
+    variables = {
+      DYNAMODB_TABLE = aws_dynamodb_table.traffic_simulation.name
+    }
+  }
 }
 
 # Event Source Mappings for SQS Queues to Trigger Lambda
@@ -155,19 +161,6 @@ resource "aws_api_gateway_method" "simulate_post" {
   authorization = "NONE"
 }
 
-resource "aws_api_gateway_resource" "results" {
-  rest_api_id = aws_api_gateway_rest_api.api.id
-  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
-  path_part   = "results"
-}
-
-resource "aws_api_gateway_method" "results_get" {
-  rest_api_id   = aws_api_gateway_rest_api.api.id
-  resource_id   = aws_api_gateway_resource.results.id
-  http_method   = "GET"
-  authorization = "NONE"
-}
-
 # API Gateway Integration for the Simulation Endpoint
 resource "aws_api_gateway_integration" "simulate_integration" {
   rest_api_id             = aws_api_gateway_rest_api.api.id
@@ -175,12 +168,8 @@ resource "aws_api_gateway_integration" "simulate_integration" {
   http_method             = aws_api_gateway_method.simulate_post.http_method
   integration_http_method = "POST"
   type                    = "AWS"
-  uri                     = "arn:aws:apigateway:${var.aws_region}:sqs:path/${aws_sqs_queue.vehicle_trajectory_queue.name}"
+  uri                     = "arn:aws:apigateway:${var.aws_region}:sqs:path/${data.aws_caller_identity.current.account_id}/${aws_sqs_queue.vehicle_trajectory_queue.name}"
   credentials             = aws_iam_role.api_gateway_sqs_role.arn
-
-  request_parameters = {
-    "integration.request.header.Content-Type" = "'application/x-www-form-urlencoded'"
-  }
 
   request_templates = {
     "application/json" = <<EOF
@@ -189,30 +178,105 @@ EOF
   }
 }
 
-# API Gateway Integration for the Results Endpoint
-resource "aws_api_gateway_integration" "results_integration" {
-  rest_api_id             = aws_api_gateway_rest_api.api.id
-  resource_id             = aws_api_gateway_resource.results.id
-  http_method             = aws_api_gateway_method.results_get.http_method
-  integration_http_method = "POST"
-  type                    = "AWS"
-  uri                     = "arn:aws:apigateway:${var.aws_region}:sqs:path/${aws_sqs_queue.traffic_light_queue.name}"
-  credentials             = aws_iam_role.api_gateway_sqs_role.arn
+# Method Response
+resource "aws_api_gateway_method_response" "simulate_response_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.simulation.id
+  http_method = aws_api_gateway_method.simulate_post.http_method
+  status_code = "200"
 
-  request_parameters = {
-    "integration.request.header.Content-Type" = "'application/x-www-form-urlencoded'"
+  response_models = {
+    "application/json" = "Empty"
   }
 
-  request_templates = {
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin" = true
+  }
+}
+
+# Integration Response
+resource "aws_api_gateway_integration_response" "simulate_integration_response" {
+  rest_api_id       = aws_api_gateway_rest_api.api.id
+  resource_id       = aws_api_gateway_resource.simulation.id
+  http_method       = aws_api_gateway_method.simulate_post.http_method
+  status_code       = aws_api_gateway_method_response.simulate_response_200.status_code
+  selection_pattern = "^2[0-9][0-9]"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin" = "'*'"
+  }
+
+  response_templates = {
     "application/json" = <<EOF
-Action=SendMessage&MessageBody=$input.body
+{
+  "message": "Request accepted"
+}
 EOF
   }
+
+  depends_on = [aws_api_gateway_integration.simulate_integration]
+}
+
+# Add CORS support
+resource "aws_api_gateway_method" "simulate_options" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.simulation.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "simulate_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.simulation.id
+  http_method = aws_api_gateway_method.simulate_options.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "simulate_options_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.simulation.id
+  http_method = aws_api_gateway_method.simulate_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "simulate_options" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.simulation.id
+  http_method = aws_api_gateway_method.simulate_options.http_method
+  status_code = aws_api_gateway_method_response.simulate_options_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+
+  depends_on = [aws_api_gateway_integration.simulate_options]
 }
 
 # Deploy the API Gateway
 resource "aws_api_gateway_deployment" "api_deployment" {
-  depends_on  = [aws_api_gateway_integration.simulate_integration, aws_api_gateway_integration.results_integration]
+  depends_on = [
+    aws_api_gateway_integration.simulate_integration,
+    aws_api_gateway_integration.simulate_options,
+    aws_api_gateway_integration_response.simulate_integration_response,
+    aws_api_gateway_integration_response.simulate_options
+  ]
   rest_api_id = aws_api_gateway_rest_api.api.id
   stage_name  = "prod"
+}
+
+# Output the API Gateway URL
+output "api_url" {
+  value = "${aws_api_gateway_deployment.api_deployment.invoke_url}/simulate"
 }
