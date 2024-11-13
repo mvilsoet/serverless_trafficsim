@@ -168,14 +168,14 @@ resource "aws_api_gateway_method" "results_get" {
   authorization = "NONE"
 }
 
-# API Gateway Integrations to Send Messages to SQS
+# API Gateway Integration for the Simulation Endpoint
 resource "aws_api_gateway_integration" "simulate_integration" {
   rest_api_id             = aws_api_gateway_rest_api.api.id
   resource_id             = aws_api_gateway_resource.simulation.id
   http_method             = aws_api_gateway_method.simulate_post.http_method
   integration_http_method = "POST"
   type                    = "AWS"
-  uri                     = "${aws_sqs_queue.vehicle_trajectory_queue.arn}"
+  uri                     = "arn:aws:apigateway:${var.aws_region}:sqs:path/${aws_sqs_queue.vehicle_trajectory_queue.name}"
   credentials             = aws_iam_role.api_gateway_sqs_role.arn
 
   request_parameters = {
@@ -189,13 +189,14 @@ EOF
   }
 }
 
+# API Gateway Integration for the Results Endpoint
 resource "aws_api_gateway_integration" "results_integration" {
   rest_api_id             = aws_api_gateway_rest_api.api.id
   resource_id             = aws_api_gateway_resource.results.id
   http_method             = aws_api_gateway_method.results_get.http_method
   integration_http_method = "POST"
   type                    = "AWS"
-  uri                     = "${aws_sqs_queue.traffic_light_queue.arn}"
+  uri                     = "arn:aws:apigateway:${var.aws_region}:sqs:path/${aws_sqs_queue.traffic_light_queue.name}"
   credentials             = aws_iam_role.api_gateway_sqs_role.arn
 
   request_parameters = {
