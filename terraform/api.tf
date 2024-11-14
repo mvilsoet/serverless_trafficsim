@@ -102,7 +102,7 @@ resource "aws_api_gateway_integration" "results_integration" {
   http_method             = aws_api_gateway_method.results_get.http_method
   integration_http_method = "POST"
   type                    = "AWS"
-  uri                     = "arn:aws:apigateway:${var.aws_region}:dynamodb:action/Query"
+  uri                     = "arn:aws:apigateway:${var.aws_region}:dynamodb:action/Scan"
   credentials             = aws_iam_role.api_gateway_role.arn
 
   request_templates = {
