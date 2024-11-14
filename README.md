@@ -2,11 +2,24 @@
 
 This project uses Terraform IaC to provision AWS infrastructure and deploy Lambda functions for a traffic simulation system. It uses AWS API Gateway, DynamoDB, SQS, and ECR and Github Actions CI/CD workflows for all necessary components.
 
-## Table of Contents
-1. [How to Run](#how-to-run)
-2. [Architecture](#architecture)
-
+1. [Architecture](#architecture)
+2. [How to Run](#how-to-run)
 ---
+
+## Architecture
+The traffic simulation project is designed with AWS services to handle simulation requests and return results efficiently.
+
+![Traffic Simulation](.github/architecture.png)
+
+Key components:
+
+- API Gateway: Exposes the simulation and results endpoints for receiving requests.
+- SQS Queues: Manages message queues for vehicle trajectory data and traffic light control.
+- DynamoDB: Stores simulation results for querying.
+- Lambda Functions: Processes simulation requests and retrieves results.
+- ECR: Hosts Docker images for Lambda, built from the GitHub CI/CD pipeline.
+
+This high-level architecture supports scalable traffic simulation with AWS, leveraging serverless resources and automated deployment pipelines.
 
 ## How to Run
 
@@ -57,16 +70,3 @@ Use the `send_simulation_request.py` script to test the deployed API endpoints.
   ```bash
   python send_simulation_request.py https://<YOUR-API-LINK-ID>.execute-api.us-east-2.amazonaws.com/prod/results --method GET
   ```
-
-## Architecture
-The traffic simulation project is designed with AWS services to handle simulation requests and return results efficiently.
-
-Key components:
-
-- API Gateway: Exposes the simulation and results endpoints for receiving requests.
-- SQS Queues: Manages message queues for vehicle trajectory data and traffic light control.
-- DynamoDB: Stores simulation results for querying.
-- Lambda Functions: Processes simulation requests and retrieves results.
-- ECR: Hosts Docker images for Lambda, built from the GitHub CI/CD pipeline.
-
-This high-level architecture supports scalable traffic simulation with AWS, leveraging serverless resources and automated deployment pipelines.
