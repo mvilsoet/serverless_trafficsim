@@ -2,7 +2,7 @@ import requests
 import json
 from datetime import datetime
 
-def send_simulation_request(api_url, vehicle_count=5, time_step=1.0):
+def send_simulation_request(api_url, vehicle_count=5, time_step=3.0):
     # Construct the request payload
     payload = {
         "messageType": "SimulationRequest",
@@ -42,7 +42,7 @@ def send_simulation_request(api_url, vehicle_count=5, time_step=1.0):
 
 if __name__ == "__main__":
     # API endpoint URL
-    API_URL = "https://fcqbz49208.execute-api.us-east-2.amazonaws.com/prod/simulate"
+    API_URL = "https://8o3q4qr9lf.execute-api.us-east-2.amazonaws.com/prod/simulate"
     
     # Send the request
     send_simulation_request(API_URL)
